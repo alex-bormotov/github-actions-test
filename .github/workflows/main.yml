@@ -1,0 +1,65 @@
+name: AWS-BeanStalk-Pipeline
+
+env:
+  APP_S3_BUCKET_NAME: "elasticbeanstalk-us-east-1-407606609011"
+  APP_NAME : "ci-cd-test"
+  ENV_NAME: "CiCdTest-env"
+  DEPLOY_PKG_NAME: "github-action-test-flask-app_${{ github.sha }}.zip"
+  AWS_REGION_NAME: "us-east-1"
+
+on:
+  push:
+    branches: 
+      - master
+
+
+jobs:
+  ci_part:
+    runs-on: [ubuntu-latest]
+    
+    steps:
+     - name: Clone this repositary
+       uses: actions/checkout@v1
+    
+     - name: Make zip pkg
+       run: zip -r ${{ env.DEPLOY_PKG_NAME }} ./ -x *.git*
+       
+     - name: Config Access to AWS
+       uses: aws-actions/configure-aws-credentials@v1
+       with:
+         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+         aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+         aws-region: ${{ env.AWS_REGION_NAME }}
+     
+     - name: push to S3
+       run: aws s3 cp ${{ env.DEPLOY_PKG_NAME }} s3://${{ env.APP_S3_BUCKET_NAME }}/
+     
+     - name: Print msg
+       run: echo "CI part is finished"
+   
+ 
+  cd_part:
+    runs-on: ubuntu-latest
+    needs: [ci_part]
+
+    steps:
+     - name: Config Access to AWS
+       uses: aws-actions/configure-aws-credentials@v1
+       with:
+         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+         aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+         aws-region: ${{ env.AWS_REGION_NAME }}
+    
+     - name: Create new App Version
+       run : |
+        aws elasticbeanstalk create-application-version \
+        --application-name ${{ env.APP_NAME }} \
+        --source-bundle S3Bucket="${{ env.APP_S3_BUCKET_NAME }}",S3Key="${{ env.DEPLOY_PKG_NAME }}" \
+        --version-label "Ver-${{ github.sha }}" \
+        --description "SHA-${{ github.sha }}"
+       
+     - name: Deploy new App Version
+       run : aws elasticbeanstalk update-environment --environment-name ${{ env.ENV_NAME }} --version-label "Ver-${{ github.sha }}"
+      
+     - name: Print msg
+       run : echo "CD part is finished"
